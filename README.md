@@ -1,9 +1,9 @@
 # django-swr-memoize
 
 [![CI](https://github.com/jimmy927/django-swr-memoize/actions/workflows/ci.yml/badge.svg)](https://github.com/jimmy927/django-swr-memoize/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
-[![Python versions](https://img.shields.io/pypi/pyversions/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
-[![Django versions](https://img.shields.io/pypi/djversions/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
+[![PyPI](https://img.shields.io/pypi/v/django-swr-memoize)](https://pypi.org/project/django-swr-memoize/)
+[![Python versions](https://img.shields.io/pypi/pyversions/django-swr-memoize)](https://pypi.org/project/django-swr-memoize/)
+[![Django versions](https://img.shields.io/pypi/frameworkversions/django/django-swr-memoize)](https://pypi.org/project/django-swr-memoize/)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 
 Stale-while-revalidate memoization for Django. The API is the same as
