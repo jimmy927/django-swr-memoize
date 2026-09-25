@@ -16,11 +16,45 @@ With django-memoize, when a cached value expires, the next caller runs the
 function and waits for it. If the function takes 9 s and its value expires
 hourly, someone waits 9 s every hour. Under load it's worse: every caller that
 arrives during those 9 s misses the cache too, and they all run the function at
-the same time.
+the same time. This is known as a *cache stampede* [3].
 
 django-swr-memoize serves the old value straight away, recomputes it in a
 background thread, and the next caller gets the new value. As long as a key is
 read often enough, nobody ever waits.
+
+## Background
+
+The name and the model come from HTTP caching. RFC 5861 [1] defines two
+`Cache-Control` extensions, and RFC 9111 [2], the current HTTP caching standard,
+still refers to them:
+
+- **`stale-while-revalidate=N`**: a cache may keep serving a response for up to
+  N seconds after it goes stale, while it revalidates in the background
+  ("without blocking").
+- **`stale-if-error=N`**: when revalidating fails, a stale response may still be
+  used.
+
+In this library, `fresh_for` plays the part of HTTP's freshness lifetime
+(`max-age`), and `max_age - fresh_for` is the `stale-while-revalidate` window.
+A failed refresh keeps the stale value, like `stale-if-error`, but never past
+`max_age`.
+
+Vattani, Chierichetti and Lowenstein [3] study cache stampedes formally and give
+an optimal *probabilistic early recomputation* (XFetch): each request, shortly
+before expiry, recomputes with a probability that rises as expiry approaches.
+Only a few requests end up recomputing, but each of those still waits for it.
+django-swr-memoize takes a different route: a lock picks exactly one refresher
+per key, and it runs in the background, so no caller waits.
+
+### References
+
+1. M. Nottingham. *HTTP Cache-Control Extensions for Stale Content*.
+   [RFC 5861](https://www.rfc-editor.org/rfc/rfc5861), IETF, May 2010.
+2. R. Fielding, M. Nottingham, J. Reschke (eds.). *HTTP Caching*.
+   [RFC 9111](https://www.rfc-editor.org/rfc/rfc9111), IETF, June 2022.
+3. A. Vattani, F. Chierichetti, K. Lowenstein. *Optimal Probabilistic Cache
+   Stampede Prevention*. Proceedings of the VLDB Endowment 8(8), 886–897,
+   2015. [PDF](https://www.vldb.org/pvldb/vol8/p886-vattani.pdf)
 
 ## Installation
 
