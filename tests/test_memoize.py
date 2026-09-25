@@ -215,3 +215,83 @@ def test_the_original_function_stays_reachable() -> None:
 
     f()
     assert f.uncached() == 2  # type: ignore[attr-defined]
+
+
+def test_a_background_refresh_outlives_the_first_max_age(clock: Clock) -> None:
+    """The version key must not lapse with the first value: django-memoize's
+    did, which made every value of the function unreachable once an hour."""
+    body = Counter()
+
+    @memoize(timeout=100)
+    def f() -> int:
+        return body()
+
+    f()
+    clock.advance(60)
+    f()  # stale: refreshed in the background at t=60
+    join_refreshes()
+    clock.advance(50)  # t=110: past the first value's max_age
+
+    assert f() == 2
+
+
+def test_on_miss_answers_at_once_and_computes_in_the_background() -> None:
+    body = Counter()
+
+    @memoize(timeout=100, on_miss=None)
+    def f() -> int:
+        return body()
+
+    assert f() is None
+    join_refreshes()
+    assert f() == 1
+    assert body.calls == 1
+
+
+def test_on_miss_computes_once_however_many_callers_miss() -> None:
+    started = threading.Event()
+    release = threading.Event()
+    body = Counter()
+
+    @memoize(timeout=100, on_miss=None)
+    def f() -> int:
+        started.set()
+        release.wait(timeout=5)
+        return body()
+
+    for _ in range(10):
+        assert f() is None
+    started.wait(timeout=5)
+    release.set()
+    join_refreshes()
+
+    assert body.calls == 1
+    assert f() == 1
+
+
+def test_on_miss_applies_past_max_age_too(clock: Clock) -> None:
+    body = Counter()
+
+    @memoize(timeout=100, on_miss=None)
+    def f() -> int:
+        return body()
+
+    f()
+    join_refreshes()
+    clock.advance(101)
+
+    assert f() is None
+    join_refreshes()
+    assert f() == 2
+
+
+def test_wait_on_miss_waits_and_fills_the_same_cache() -> None:
+    body = Counter()
+
+    @memoize(timeout=100, on_miss=None)
+    def f(a: int) -> int:
+        return body()
+
+    assert f.wait_on_miss(7) == 1  # type: ignore[attr-defined]
+    assert f(7) == 1
+    assert body.calls == 1

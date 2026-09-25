@@ -33,7 +33,7 @@ from django.core.cache.backends.base import DEFAULT_TIMEOUT, BaseCache
 from django.db import connections
 from django.utils.encoding import force_bytes
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,9 @@ DEFAULT_FRESH_SHARE = 0.5
 
 #: Name of the background threads, so tests and debuggers can find them.
 REFRESH_THREAD_NAME = "swr-memoize-refresh"
+
+#: ``on_miss`` default: a miss waits for the function, as in django-memoize.
+WAIT = object()
 
 
 class DefaultCacheObject:
@@ -142,9 +145,13 @@ class Memoizer:
         args: tuple[Any, ...] | None = None,
         reset: bool = False,
         delete: bool = False,
-        timeout: Any = DEFAULT_TIMEOUT,  # noqa: ANN401
     ) -> tuple[str, str | None]:
-        """Updates the hash version associated with a memoized function or method."""
+        """Updates the hash version associated with a memoized function or method.
+
+        Version keys never expire. django-memoize gives them the function's
+        timeout, so every value of the function becomes unreachable at once when
+        it lapses; values refreshed in the background would be lost with it.
+        """
         fname, instance_fname = function_namespace(f, args=args)
         version_key = self._memvname(fname)
         fetch_keys = [version_key]
@@ -177,20 +184,17 @@ class Memoizer:
             dirty = True
 
         if dirty:
-            self.set_many(dict(zip(fetch_keys, version_data_list)), timeout=timeout)
+            self.set_many(dict(zip(fetch_keys, version_data_list)), timeout=None)
 
         return fname, "".join(version_data_list)
 
     def _memoize_make_cache_key(
-        self,
-        make_name: Callable[[str], str] | None = None,
-        timeout: Any = DEFAULT_TIMEOUT,  # noqa: ANN401
+        self, make_name: Callable[[str], str] | None = None
     ) -> Callable[..., str]:
         """Function used to create the cache_key for memoized functions."""
 
         def make_cache_key(f: Callable[..., Any], *args: Any, **kwargs: Any) -> str:
-            _timeout = getattr(timeout, "cache_timeout", timeout)
-            fname, version_data = self._memoize_version(f, args=args, timeout=_timeout)
+            fname, version_data = self._memoize_version(f, args=args)
 
             #: this should have to be after version_data, so that it
             #: does not break the delete_memoized functionality.
@@ -276,7 +280,7 @@ class Memoizer:
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
     ) -> None:
-        """Recompute ``cache_key`` in a background thread, unless another process already is."""
+        """Compute ``cache_key`` in a background thread, unless another process already is."""
         lock_key = self._refresh_lock_key(cache_key)
         if not self.add(lock_key, True, timeout=self.refresh_lock_timeout):
             return
@@ -290,8 +294,8 @@ class Memoizer:
                     timeout=decorated_function.cache_timeout,  # type: ignore[attr-defined]
                 )
             except Exception:
-                # The stale value stays served until max_age; the next caller
-                # past fresh_for retries.
+                # A stale value stays served until max_age, a miss keeps
+                # returning on_miss; the next such call retries.
                 logger.exception(
                     f"swr_memoize: background refresh of {f.__qualname__} failed"
                 )
@@ -311,6 +315,7 @@ class Memoizer:
         *,
         fresh_for: float | None = None,
         max_age: Any = DEFAULT_TIMEOUT,  # noqa: ANN401
+        on_miss: Any = WAIT,  # noqa: ANN401
     ) -> Callable[[F], F]:
         """Cache the result of a function, keyed on its arguments.
 
@@ -328,18 +333,22 @@ class Memoizer:
         :param max_age: Seconds after which a value is never served; the caller
                         waits for a new one. Default: the cache's default timeout.
                         ``None`` keeps values forever.
+        :param on_miss: If set, a miss (never computed, or older than
+                        ``max_age``) returns this at once and computes the value
+                        in the background for the next caller, instead of
+                        waiting for it.
 
         The decorated function carries ``uncached`` (the original function),
-        ``cache_timeout`` (``max_age``), ``fresh_for``, ``make_cache_key`` and
-        ``delete_memoized``.
+        ``wait_on_miss`` (the memoized function, but a miss waits for the value
+        whatever ``on_miss`` says), ``cache_timeout`` (``max_age``),
+        ``fresh_for``, ``make_cache_key`` and ``delete_memoized``.
         """
         resolved_fresh_for, resolved_max_age = self._resolve_ages(
             timeout, fresh_for, max_age
         )
 
         def memoize(f: F) -> F:
-            @functools.wraps(f)
-            def decorated_function(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            def lookup(args: tuple[Any, ...], kwargs: dict[str, Any], wait: bool) -> Any:  # noqa: ANN401
                 #: bypass cache
                 if callable(unless) and unless() is True:
                     return f(*args, **kwargs)
@@ -363,7 +372,10 @@ class Memoizer:
                         )
                     return rv
 
-                # a miss (never computed, or older than max_age): compute now
+                # a miss (never computed, or older than max_age)
+                if not wait:
+                    self._start_refresh(decorated_function, f, cache_key, args, kwargs)
+                    return on_miss
                 rv = f(*args, **kwargs)
                 try:
                     self.set(
@@ -377,11 +389,18 @@ class Memoizer:
                     logger.exception("Exception possibly due to cache backend.")
                 return rv
 
+            @functools.wraps(f)
+            def decorated_function(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                return lookup(args, kwargs, wait=on_miss is WAIT)
+
             decorated_function.uncached = f  # type: ignore[attr-defined]
+            decorated_function.wait_on_miss = lambda *args, **kwargs: lookup(  # type: ignore[attr-defined]
+                args, kwargs, wait=True
+            )
             decorated_function.cache_timeout = resolved_max_age  # type: ignore[attr-defined]
             decorated_function.fresh_for = resolved_fresh_for  # type: ignore[attr-defined]
             decorated_function.make_cache_key = self._memoize_make_cache_key(  # type: ignore[attr-defined]
-                make_name, decorated_function
+                make_name
             )
             decorated_function.delete_memoized = lambda: self.delete_memoized(f)  # type: ignore[attr-defined]
 

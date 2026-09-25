@@ -108,6 +108,27 @@ How a call behaves depends on how old the cached value is:
 | `fresh_for` | half of `max_age` | a value younger than this is served without refreshing it |
 | `make_name` | `None` | maps the function name to the one used in the key |
 | `unless` | `None` | a callable; when it returns `True` the cache is bypassed |
+| `on_miss` | wait | a value to return at once on a miss, while the function runs in the background |
+
+### Never waiting, even the first time
+
+By default, a miss (a value never computed, or older than `max_age`) waits for
+the function, as django-memoize does. With `on_miss`, a miss returns that value
+at once and computes the real one in the background, so no call ever waits:
+
+```python
+@memoize(timeout=3600, on_miss=None)
+def pool_state(assignment_id: int) -> dict | None:
+    ...  # slow
+
+
+pool_state(743)               # first call ever: None at once; computing in the background
+pool_state(743)               # a moment later: the value
+pool_state.wait_on_miss(744)  # this caller needs the value: waits on a miss
+```
+
+`wait_on_miss` shares the cache with the plain call. Use it where a placeholder
+would be wrong, for example in a background job that acts on the value.
 
 ### Background refreshes
 
@@ -121,10 +142,15 @@ How a call behaves depends on how old the cached value is:
   until `max_age`, and the next caller past `fresh_for` retries.
 - **Database connections are closed.** The refresh thread closes its own Django
   database connections when it finishes.
+- **Version keys never expire.** django-memoize stores each function's version
+  hash with the function's timeout, so when it lapses every value of the
+  function becomes unreachable at once. Here version keys only change through
+  `delete_memoized`.
 
 ## Moving from django-memoize
 
-These behave the same as in django-memoize:
+These behave the same as in django-memoize, except that version keys never
+expire (see above):
 
 - `memoize(timeout, make_name, unless)`
 - `delete_memoized(f, *args, **kwargs)` and `delete_memoized_verhash(f)`
@@ -171,6 +197,8 @@ The tests are in `tests/test_memoize.py`. They cover:
 - a failed refresh
 - both forms of `delete_memoized`
 - instance methods, `unless` and `uncached`
+- `on_miss` and `wait_on_miss`
+- a background refresh surviving past the first value's `max_age`
 
 A fake clock drives the timing, so the whole suite runs in well under a second.
 
