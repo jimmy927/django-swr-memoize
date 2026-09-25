@@ -1,6 +1,6 @@
 # django-swr-memoize
 
-[![CI](https://github.com/Morpheus-Tribe/django-swr-memoize/actions/workflows/ci.yml/badge.svg)](https://github.com/Morpheus-Tribe/django-swr-memoize/actions/workflows/ci.yml)
+[![CI](https://github.com/jimmy927/django-swr-memoize/actions/workflows/ci.yml/badge.svg)](https://github.com/jimmy927/django-swr-memoize/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
 [![Python versions](https://img.shields.io/pypi/pyversions/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
 [![Django versions](https://img.shields.io/pypi/djversions/django-swr-memoize.svg)](https://pypi.org/project/django-swr-memoize/)
@@ -140,7 +140,7 @@ over one at a time.
 ## Supported versions
 
 Every combination below runs the full test suite in
-[CI](https://github.com/Morpheus-Tribe/django-swr-memoize/actions/workflows/ci.yml)
+[CI](https://github.com/jimmy927/django-swr-memoize/actions/workflows/ci.yml)
 on every push and pull request, and weekly.
 
 | Django | Python |
@@ -153,7 +153,7 @@ on every push and pull request, and weekly.
 ## Development
 
 ```bash
-git clone https://github.com/Morpheus-Tribe/django-swr-memoize
+git clone https://github.com/jimmy927/django-swr-memoize
 cd django-swr-memoize
 uv run --with pytest --with django python -m pytest -v
 ```
